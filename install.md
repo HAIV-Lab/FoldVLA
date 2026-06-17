@@ -53,3 +53,5 @@ CUDA_DEVICE_ORDER=PCI_BUS_ID python rl_isaaclab/scripts/train.py \
   --video_interval 400 \
   --num_envs 16 \
   --device cuda:0
+
+当前命令已经可以跑出视频了
