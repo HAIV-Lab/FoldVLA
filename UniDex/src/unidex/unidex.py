@@ -156,7 +156,7 @@ class PointCloudUniDex(nn.Module):
 
             
         self.tokenizer = AutoTokenizer.from_pretrained(
-            pretrained_model_path, padding_side="right"
+            pretrained_model_path, padding_side="right", use_fast=False
         )
         self.processor = VLAProcessor(
             tokenizer=self.tokenizer,

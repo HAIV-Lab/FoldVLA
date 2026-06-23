@@ -61,7 +61,7 @@ mixture:
     rope_theta: ${model.action_expert_rope_theta}
 
 projector:
-  _target_: src.openmodel.modules.PaliGemmaMultiModalProjector
+  _target_: src.unidex.modules.PaliGemmaMultiModalProjector
   use_quantize: ${model.quantize}
   use_lora: ${model.lora}
   config:
@@ -69,7 +69,7 @@ projector:
     projection_dim: 2048
 
 joint:
-  _target_: src.openmodel.joint_model.JointModel
+  _target_: src.unidex.joint_model.JointModel
   config:
     action_expert_adaptive_mode: ${model.action_expert_adaptive_mode}
     time_hidden_size: ${model.time_hidden_size}

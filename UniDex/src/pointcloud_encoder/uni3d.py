@@ -14,7 +14,26 @@ def fps(data, number):
     '''
     if data.dtype != torch.float32:
         data = data.float()
-    fps_data, fps_idx = pytorch3d.ops.sample_farthest_points(data, K=number)
+    try:
+        fps_data, fps_idx = pytorch3d.ops.sample_farthest_points(data, K=number)
+    except TypeError:
+        # Some local PyTorch3D builds ship a Python wrapper and C extension with
+        # mismatched sample_farthest_points signatures. Fall back to a small,
+        # deterministic Torch implementation so training can still run.
+        batch_size, num_points, _ = data.shape
+        centroids = torch.zeros(batch_size, number, dtype=torch.long, device=data.device)
+        distance = torch.full((batch_size, num_points), float("inf"), device=data.device)
+        farthest = torch.zeros(batch_size, dtype=torch.long, device=data.device)
+        batch_indices = torch.arange(batch_size, dtype=torch.long, device=data.device)
+
+        for i in range(number):
+            centroids[:, i] = farthest
+            centroid = data[batch_indices, farthest].view(batch_size, 1, 3)
+            dist = torch.sum((data - centroid) ** 2, dim=-1)
+            distance = torch.minimum(distance, dist)
+            farthest = torch.max(distance, dim=1)[1]
+
+        fps_data = data[batch_indices[:, None], centroids]
     return fps_data
 
 # https://github.com/Strawberry-Eat-Mango/PCT_Pytorch/blob/main/util.py 
@@ -258,4 +277,3 @@ class Uni3D(nn.Module):
             x = self.trans2embed(x)
 
         return x
-
