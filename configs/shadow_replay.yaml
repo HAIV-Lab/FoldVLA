@@ -1,0 +1,109 @@
+# Offline-only evaluation. Predicted actions are never sent to a robot.
+checkpoint: UniDex/finetune_checkpoints_origami_4090_freeze_vlm_bs4_10000steps/checkpoint-epoch=29-train_loss=0.0242.ckpt
+training_config: UniDex/finetune_checkpoints_origami_4090_freeze_vlm_bs4_10000steps/config-2026-06-29 14:25:17.yaml
+dataset_path: dataset/Robotic_Origami_Challenge/season_POC22032_2026_05_14_19_21_01_train
+output_dir: outputs/shadow_replay
+
+# auto selects the CUDA device with the most currently free memory, or CPU.
+device: auto
+batch_size: 1
+num_workers: 0
+mixed_precision: true
+precision: bfloat16
+seed: 42
+warmup_iterations: 1
+
+episode_ids: null
+max_episodes: null
+max_steps_per_episode: null
+
+save_frame_results: true
+save_frame_jsonl: false
+save_video: false
+save_plots: true
+
+model:
+  backend: unidex
+  strict_checkpoint: true
+
+dataset:
+  # auto resolves to the training sample_stride (currently 3, i.e. 10 Hz).
+  # Set to 1 to process every recorded 30 Hz frame.
+  frame_stride: auto
+  fields:
+    tcp: observation.state.tcp
+    joint_torque: observation.state.joint_torque
+    tactile: observation.tactile
+
+preprocessing:
+  pointcloud_size: auto
+  # This exactly matches the existing converter/training data. It is deliberately
+  # named "gray": the current checkpoint was not trained on decoded real RGB/depth.
+  # rgb_image_plane is available for robustness experiments, but is a distribution shift.
+  pointcloud_source: gray_image_plane
+  camera_key: observation.images.wrist_right
+  prompt_template: "Use Shadow hands to {instruction}."
+  source_zarr: dataset/unidex_real/lerobot3_bimanual_shadow.zarr
+
+action:
+  type: auto
+  adapter: auto
+  representation: auto
+  target_offset_steps: auto
+  chunk_length: auto
+  xyz_indices: null
+  rotation_indices: null
+  gripper_indices: null
+  robot_gripper_indices: null
+  gripper_threshold: 0.5
+  unit: auto
+  quaternion_order: xyzw
+  normalizer_path: null
+
+evaluation:
+  stage_metrics: true
+  chunk_consistency: true
+  critical_event_window: 5
+  # Optional trusted annotations. Intervals use [start_frame, end_frame).
+  stage_annotations: null
+  critical_events: null
+
+leakage:
+  training_episode_ids: auto
+  training_manifest: dataset/unidex_real/manifest.json
+  fail_on_overlap: false
+
+safety:
+  enabled: true
+  urdf_path: asserts/north_poc2_2_urdf_usd/north_poc2_2_v3_1.urdf
+  violation_behavior: reject
+  workspace_min: null
+  workspace_max: null
+  max_cartesian_step: 0.10
+  max_rotation_step_deg: 30.0
+  max_joint_step: 0.25
+  # null uses per-joint URDF velocity limits.
+  max_joint_velocity: null
+  max_joint_acceleration: 20.0
+  near_joint_limit_margin_ratio: 0.05
+  check_ik: true
+  check_singularity: true
+  check_self_collision: false
+  check_environment_collision: false
+
+perturbation:
+  enabled: false
+  brightness: null
+  contrast: null
+  gaussian_noise_std: null
+  blur_kernel: null
+  occlusion_fraction: null
+  observation_delay_frames: 0
+  drop_frame_probability: 0.0
+  robot_state_noise_std: null
+  action_history_missing: false
+  camera_interval_jitter_frames: null
+
+visualization:
+  camera_key: observation.images.head_left
+  max_curve_dimensions: 16

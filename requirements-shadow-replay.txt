@@ -1,0 +1,8 @@
+# Supplemental runtime dependencies for tools/offline_shadow_replay.py.
+# PyTorch/Hydra/UniDex dependencies remain declared in UniDex/requirements.txt.
+matplotlib>=3.7
+opencv-python>=4.8
+av>=15
+pyarrow>=12
+PyYAML>=6
+zarr>=2.16

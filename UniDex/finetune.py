@@ -87,6 +87,16 @@ class LightningTrainingWrapper(L.LightningModule):
             del state_dict, new_state_dict
             gc.collect()
 
+        if getattr(self.config, "freeze_vlm", False):
+            for param in self.policy.joint_model.mixtures["vlm"].parameters():
+                param.requires_grad = False
+            print(f"Process {self.global_rank}: VLM frozen.")
+
+        if self.global_rank == 0:
+            trainable = sum(p.numel() for p in self.policy.parameters() if p.requires_grad)
+            total = sum(p.numel() for p in self.policy.parameters())
+            print(f"params trainable/total {trainable} {total}")
+
     def forward(self, batch):
         return self.policy(batch)[0]
 
@@ -96,6 +106,9 @@ class LightningTrainingWrapper(L.LightningModule):
             self.log(f"train_{key}", value, on_step=True, on_epoch=True)
         self.log("train_loss", loss, prog_bar=True, on_step=True, on_epoch=True)
         self.log("learning_rate", self.lr_scheduler(self.global_step), on_step=True, on_epoch=True)
+        if self.global_rank == 0:
+            max_steps = getattr(self.trainer, "max_steps", -1)
+            print(f"step={self.global_step + 1}/{max_steps} loss={loss.detach().float().item():.6f}", flush=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -171,6 +184,7 @@ def main(config):
         devices=trainer_config.devices,
         strategy=trainer_config.strategy,
         max_epochs=trainer_config.max_epochs,
+        max_steps=getattr(trainer_config, "max_steps", -1),
         enable_progress_bar=True,
         gradient_clip_val=trainer_config.gradient_clip_val,
         precision=trainer_config.precision,

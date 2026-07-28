@@ -1,0 +1,122 @@
+# Offline-only T-Rex evaluation. Predicted actions are never sent to a robot.
+checkpoint: checkpoints/T-Rex-origami-posttrain/t-rex_origami_65d_freeze_vlm/t-rex_origami_65d_freeze_vlm_2x4090_3epoch_0702_145407/checkpoint-0-60000
+training_config: null
+dataset_path: dataset/Robotic_Origami_Challenge/season_POC22032_2026_05_14_19_21_01_train
+output_dir: outputs/shadow_replay_trex
+
+# Run with CUDA_DEVICE_ORDER=PCI_BUS_ID so this is physical GPU 3 (RTX 4090).
+device: cuda:3
+batch_size: 1
+num_workers: 0
+mixed_precision: true
+precision: bfloat16
+seed: 42
+warmup_iterations: 1
+
+episode_ids: null
+max_episodes: null
+max_steps_per_episode: null
+
+save_frame_results: true
+save_frame_jsonl: false
+save_video: false
+save_plots: true
+
+model:
+  backend: trex
+  trex_root: T-Rex
+  # Global aggregate stats used by the recorded T-Rex post-training run.
+  stats_path: dataset/Robotic_Origami_Challenge/lerobot3.0/meta/stats.json
+  strict_checkpoint: true
+  image_size: [384, 288]
+  disable_tactile: false
+  # training_args.json omitted these values; the training command/log records them.
+  action_lora:
+    rank: 16
+    alpha: 32.0
+    dropout: 0.0
+
+dataset:
+  # T-Rex was trained on contiguous 30 Hz future action chunks.
+  frame_stride: 1
+  fields:
+    tcp: observation.state.tcp
+    joint_torque: observation.state.joint_torque
+    tactile: observation.tactile
+
+preprocessing:
+  observation_source: real_rgb_plus_tactile
+  head_camera_key: observation.images.head_left
+  wrist_right_camera_key: observation.images.wrist_right
+  wrist_left_camera_key: observation.images.wrist_left
+  tactile_vector_key: observation.tactile
+  tactile_deform_key: observation.images.tactile_deform
+  prompt_template: "{instruction}"
+  source_zarr: null
+
+action:
+  type: auto
+  adapter: identity65
+  representation: joint_position
+  target_offset_steps: 0
+  chunk_length: auto
+  xyz_indices: null
+  rotation_indices: null
+  gripper_indices: null
+  robot_gripper_indices: null
+  gripper_threshold: 0.5
+  unit: rad
+  quaternion_order: xyzw
+  normalizer_path: null
+
+evaluation:
+  stage_metrics: true
+  chunk_consistency: true
+  critical_event_window: 5
+  stage_annotations: null
+  critical_events: null
+
+leakage:
+  training_episode_ids: null
+  training_manifest: null
+  fail_on_overlap: false
+  known_training_data_contains_test: true
+  known_training_data_warning: >-
+    The T-Rex post-training log records the aggregate
+    dataset/Robotic_Origami_Challenge/lerobot3.0 corpus; the selected season
+    belongs to that training corpus. Metrics are replay diagnostics, not a
+    held-out generalization estimate.
+
+safety:
+  enabled: true
+  urdf_path: asserts/north_poc2_2_urdf_usd/north_poc2_2_v3_1.urdf
+  violation_behavior: reject
+  workspace_min: null
+  workspace_max: null
+  max_cartesian_step: null
+  max_rotation_step_deg: null
+  max_joint_step: 0.25
+  max_joint_velocity: null
+  max_joint_acceleration: 20.0
+  near_joint_limit_margin_ratio: 0.05
+  check_ik: false
+  check_singularity: false
+  check_self_collision: false
+  check_environment_collision: false
+
+perturbation:
+  enabled: false
+  brightness: null
+  contrast: null
+  gaussian_noise_std: null
+  blur_kernel: null
+  occlusion_fraction: null
+  observation_delay_frames: 0
+  drop_frame_probability: 0.0
+  robot_state_noise_std: null
+  action_history_missing: false
+  camera_interval_jitter_frames: null
+
+visualization:
+  camera_key: observation.images.head_left
+  max_curve_dimensions: 16

@@ -42,6 +42,35 @@ CUDA_DEVICE_ORDER=PCI_BUS_ID python rl_isaaclab/scripts/play.py \
 
 Avoid using `CUDA_VISIBLE_DEVICES` to mask GPUs for Isaac Sim rendering unless you have verified that CUDA, Vulkan, and PhysX still agree on the same physical GPU.
 
+## 1.4. Test the North POC2.2 asset
+
+The asset configuration loads
+`../asserts/north_poc2_2_urdf_usd/north_poc2_2_v3_1/north_poc2_2_v3_1.usd`
+by default. Override it with `NORTH_POC2_2_USD_PATH` when the workspace layout
+is different.
+
+On this mixed-GPU workstation, physical GPU index 3 is the second RTX 4090.
+Keep all GPUs visible and use PCI bus ordering so CUDA, Vulkan, rendering, and
+PhysX select the same physical device:
+
+```bash
+conda run -n env_isaaclab env CUDA_DEVICE_ORDER=PCI_BUS_ID \
+  python rl_isaaclab/scripts/test_north_poc2_2_asset.py \
+  --headless \
+  --device cuda:3 \
+  --disable_collisions \
+  --fast_exit \
+  --steps 20 2>&1 | tee logs/north_poc2_2_gpu3_smoke.log
+```
+
+The test succeeds only after the USD initializes as a non-empty articulation,
+PhysX advances for the requested number of steps, its state stays finite, and
+the selected GPU identifies as an RTX 4090. `--disable_collisions` skips the
+expensive first-run convex collision cooking and is intended only for the fast
+loading smoke test; omit it when validating contacts. `--fast_exit` skips slow
+Kit extension cleanup after all witness checks have passed; it does not skip
+simulation setup or physics stepping.
+
 # 2. Training
 ## 2.1. Generate grasp cache
 ```bash
@@ -94,6 +123,30 @@ CUDA_DEVICE_ORDER=PCI_BUS_ID python rl_isaaclab/scripts/play.py \
 ```bash
 python rl_isaaclab/scripts/play.py --task Isaac-Inhand-Rotate-Sharpa-Wave-v0 --num_envs 16 --algorithm ProprioAdapt --load_path ${pth}
 ```
+
+## 3.3. Replay a North POC2.2 LeRobot trajectory
+
+The replay script maps the dataset's 65 joint values to the North POC2.2
+articulation by name, applies the URDF joint limits, and records an MP4. The
+default dataset is
+`../dataset/Robotic_Origami_Challenge/season_POC22032_2026_05_14_19_21_01_train`,
+the default trajectory is episode 0, and the default output is
+`videos/north_poc2_2_episode_0.mp4`.
+
+```bash
+conda run --no-capture-output -n env_isaaclab \
+  env CUDA_DEVICE_ORDER=PCI_BUS_ID \
+  python rl_isaaclab/scripts/replay_north_poc2_2_dataset.py \
+  --episode_index 0 \
+  --resolution 1280,720 \
+  --headless \
+  --device cuda:3 \
+  --fast_exit
+```
+
+Use `--max_frames 300` for a short smoke test. Other useful overrides include
+`--dataset`, `--output`, `--camera_eye`, `--camera_lookat`, and
+`--frame_stride`.
 
 # 4. Deploy
 ## 4.1. Prepare SharpaWave and object

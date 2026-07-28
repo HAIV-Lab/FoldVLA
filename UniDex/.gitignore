@@ -20,3 +20,4 @@ sam2/
 WiLoR/
 pytorch3d/
 UniDex_training/
+finetune_checkpoints_*/
