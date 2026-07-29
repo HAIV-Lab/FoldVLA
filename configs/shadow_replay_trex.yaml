@@ -90,7 +90,9 @@ leakage:
 safety:
   enabled: true
   urdf_path: asserts/north_poc2_2_urdf_usd/north_poc2_2_v3_1.urdf
-  violation_behavior: reject
+  # Project unsafe targets onto configured limits instead of replacing the
+  # entire 65-D command with measured state.
+  violation_behavior: clip
   workspace_min: null
   workspace_max: null
   max_cartesian_step: null
@@ -120,3 +122,24 @@ perturbation:
 visualization:
   camera_key: observation.images.head_left
   max_curve_dimensions: 16
+  robot_projection:
+    # Refined on episode 8 with alternating train/validation frames using
+    # multi-frame robot-centerline ICP. This is still self-observation
+    # calibration; use a physical calibration target for metrology.
+    enabled: false
+    source: multiframe_robot_centerline_icp_episode8
+    urdf_path: asserts/north_poc2_2_urdf_usd/north_poc2_2_v3_1.urdf
+    matrix:
+      - [207.82682637131174, 0.0, 237.58388295394496]
+      - [0.0, 270.9817248912552, 235.20898214060836]
+      - [0.0, 0.0, 1.0]
+    distortion: []
+    mount:
+      link: head_base_link
+      xyz: [0.0517350000977024, 0.04437688810531941, -0.013799023418071717]
+      rpy: [-1.520796326803074, 0.018235662142137902, -1.6187213116272166]
+    urdf_from_data_base:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+    max_frames: null
+    output_stride: 1

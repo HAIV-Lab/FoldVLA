@@ -274,10 +274,23 @@ class ActionSafetyChecker:
             if self.joint_limits is None:
                 unavailable.append("urdf_joint_limits")
 
-        reference = state if previous_action is None else np.asarray(previous_action)
-        delta = target - reference
+        # ``previous_action`` means the previous command from the same command
+        # trajectory.  Measured state is deliberately not substituted here:
+        # target-state error is a servo tracking error, not a one-frame command
+        # velocity.  When no previous command is available (chunk horizon 0),
+        # command step/velocity/acceleration checks are unavailable.
+        reference = (
+            None
+            if previous_action is None
+            else np.asarray(previous_action, dtype=np.float32)
+        )
+        delta = None if reference is None else target - reference
         max_step = self.config.get("max_joint_step")
-        if max_step is not None and np.isfinite(delta).all():
+        if (
+            delta is not None
+            and max_step is not None
+            and np.isfinite(delta).all()
+        ):
             excessive = np.abs(delta) > float(max_step)
             if excessive.any():
                 indices = np.flatnonzero(excessive)
@@ -294,7 +307,12 @@ class ActionSafetyChecker:
                     delta = target - reference
 
         velocity: Optional[np.ndarray] = None
-        if dt is not None and dt > 0 and np.isfinite(delta).all():
+        if (
+            delta is not None
+            and dt is not None
+            and dt > 0
+            and np.isfinite(delta).all()
+        ):
             velocity = delta / float(dt)
             configured_velocity = self.config.get("max_joint_velocity")
             if configured_velocity is not None:

@@ -12,6 +12,7 @@ from shadow_replay.dataset import EpisodeData, build_valid_chunk_mask
 from shadow_replay.metrics import (
     build_ground_truth_chunks,
     chunk_consistency_metrics,
+    evaluate_dataset_clipped_predictions,
     evaluate_action_predictions,
     gripper_classification_metrics,
     quaternion_geodesic_deg,
@@ -203,6 +204,38 @@ class MetricTests(unittest.TestCase):
         self.assertAlmostEqual(metrics["action_mse"], 0.5)
         self.assertEqual(metrics["per_dimension_mae"], [1.0, 0.0])
 
+    def test_gt_and_prediction_derivatives_are_computed_independently(self) -> None:
+        prediction = np.asarray([[[0.0], [1.0], [3.0]]], dtype=np.float32)
+        target = np.asarray([[[0.0], [0.5], [1.0]]], dtype=np.float32)
+        mask = np.ones((1, 3), dtype=bool)
+        metrics = evaluate_action_predictions(prediction, target, mask, fps=2.0)
+        derivatives = metrics["trajectory_derivatives"]
+        self.assertAlmostEqual(
+            derivatives["vla_prediction"]["acceleration_rad_s2"]["mean_abs"],
+            4.0,
+        )
+        self.assertAlmostEqual(
+            derivatives["ground_truth"]["acceleration_rad_s2"]["mean_abs"],
+            0.0,
+        )
+
+    def test_dataset_bounds_clip_prediction_and_gt_before_error(self) -> None:
+        prediction = np.asarray([[[-2.0, 3.0]]], dtype=np.float32)
+        target = np.asarray([[[-1.0, 4.0]]], dtype=np.float32)
+        mask = np.ones((1, 1), dtype=bool)
+        metrics = evaluate_dataset_clipped_predictions(
+            prediction,
+            target,
+            mask,
+            lower=[0.0, 0.0],
+            upper=[1.0, 2.0],
+            fps=30.0,
+        )
+        self.assertEqual(metrics["action_mae"], 0.0)
+        clipping = metrics["dataset_bound_clipping"]
+        self.assertEqual(clipping["prediction_clipped_element_count"], 2)
+        self.assertEqual(clipping["ground_truth_clipped_element_count"], 2)
+
     def test_stage_metrics_include_semantic_and_chunk_fields(self) -> None:
         prediction = np.zeros((3, 2, 9), dtype=np.float32)
         target = np.zeros_like(prediction)
@@ -225,6 +258,27 @@ class MetricTests(unittest.TestCase):
 
 
 class SafetyTests(unittest.TestCase):
+    def test_horizon_zero_does_not_treat_tracking_error_as_velocity(self) -> None:
+        checker = ActionSafetyChecker(
+            {
+                "enabled": True,
+                "violation_behavior": "clip",
+                "max_joint_step": 0.1,
+                "max_joint_velocity": 0.2,
+                "max_joint_acceleration": 1.0,
+            }
+        )
+        target = np.ones(65, dtype=np.float32)
+        result = checker.check(
+            target,
+            np.zeros(65, dtype=np.float32),
+            previous_action=None,
+            previous_velocity=None,
+            dt=0.1,
+        )
+        self.assertTrue(result.valid)
+        np.testing.assert_allclose(result.action_safe, target)
+
     def test_nan_inf_safety_check(self) -> None:
         checker = ActionSafetyChecker(
             {"enabled": True, "violation_behavior": "reject"}

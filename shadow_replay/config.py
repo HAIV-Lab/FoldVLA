@@ -71,6 +71,15 @@ def load_config(
             config[section][key] = _resolve_path(
                 config[section].get(key), config_path.parent, workspace_root
             )
+    projection = (
+        config.get("visualization", {}).get("robot_projection", {})
+        if isinstance(config.get("visualization"), dict)
+        else {}
+    )
+    if isinstance(projection, dict):
+        projection["urdf_path"] = _resolve_path(
+            projection.get("urdf_path"), config_path.parent, workspace_root
+        )
 
     validate_config(config)
     return config
@@ -149,6 +158,27 @@ def validate_config(config: Dict[str, Any]) -> None:
         lora = model.get("action_lora") or {}
         if int(lora.get("rank", 16)) < 1:
             raise ConfigError("model.action_lora.rank must be positive")
+
+    projection = config.setdefault("visualization", {}).get("robot_projection")
+    if projection and projection.get("enabled", False):
+        if backend != "trex":
+            raise ConfigError("robot projection visualization currently requires model.backend=trex")
+        if not projection.get("urdf_path"):
+            raise ConfigError("visualization.robot_projection.urdf_path is required")
+        matrix = projection.get("matrix")
+        if (
+            not isinstance(matrix, list)
+            or len(matrix) != 3
+            or any(not isinstance(row, list) or len(row) != 3 for row in matrix)
+        ):
+            raise ConfigError("visualization.robot_projection.matrix must be 3x3")
+        output_stride = projection.get("output_stride", 1)
+        if (
+            not isinstance(output_stride, int)
+            or isinstance(output_stride, bool)
+            or output_stride < 1
+        ):
+            raise ConfigError("visualization.robot_projection.output_stride must be positive")
 
     evaluation = config.setdefault("evaluation", {})
     window = evaluation.get("critical_event_window", 5)

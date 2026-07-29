@@ -366,6 +366,100 @@ def smoothness_metrics(predicted: np.ndarray, fps: float) -> Dict[str, Any]:
     }
 
 
+def trajectory_derivative_metrics(
+    trajectory: np.ndarray,
+    mask: np.ndarray,
+    fps: float,
+) -> Dict[str, Any]:
+    """Compute within-chunk derivatives for one trajectory source only.
+
+    The caller must invoke this independently for VLA predictions and ground
+    truth.  In particular, no ground-truth derivative is used as the initial
+    velocity of a predicted chunk (or vice versa).
+    """
+    values = np.asarray(trajectory, dtype=np.float64)
+    valid = np.asarray(mask, dtype=bool)
+    if values.ndim != 3 or valid.shape != values.shape[:2]:
+        raise ValueError(
+            f"trajectory/mask must be [T,H,D]/[T,H], got {values.shape}/{valid.shape}"
+        )
+    if fps <= 0:
+        raise ValueError("fps must be positive")
+
+    velocity_mask = valid[:, 1:] & valid[:, :-1]
+    velocity = np.diff(values, axis=1) * float(fps)
+    valid_velocity = velocity[velocity_mask]
+    acceleration_mask = valid[:, 2:] & valid[:, 1:-1] & valid[:, :-2]
+    acceleration = np.diff(velocity, axis=1) * float(fps)
+    valid_acceleration = acceleration[acceleration_mask]
+
+    def summarize(samples: np.ndarray) -> Dict[str, Any]:
+        if not samples.size:
+            return {"sample_count": 0}
+        absolute = np.abs(samples)
+        return {
+            "sample_count": int(len(samples)),
+            "mean_abs": _json_float(absolute.mean()),
+            "p95_abs": _json_float(np.percentile(absolute, 95)),
+            "max_abs": _json_float(absolute.max()),
+            "mean_l2": _json_float(np.linalg.norm(samples, axis=-1).mean()),
+            "per_dimension_mean_abs": [
+                _json_float(value) for value in absolute.mean(axis=0)
+            ],
+        }
+
+    return {
+        "velocity_rad_s": summarize(valid_velocity),
+        "acceleration_rad_s2": summarize(valid_acceleration),
+    }
+
+
+def evaluate_dataset_clipped_predictions(
+    predicted: np.ndarray,
+    target: np.ndarray,
+    mask: np.ndarray,
+    *,
+    lower: Sequence[float],
+    upper: Sequence[float],
+    fps: float,
+) -> Dict[str, Any]:
+    """Compare prediction and GT after clipping both to empirical data bounds."""
+    pred = np.asarray(predicted)
+    truth = np.asarray(target)
+    low = np.asarray(lower, dtype=np.float64)
+    high = np.asarray(upper, dtype=np.float64)
+    if pred.shape != truth.shape or pred.ndim != 3:
+        raise ValueError(f"Expected matching [T,H,D] arrays, got {pred.shape}/{truth.shape}")
+    if low.shape != (pred.shape[-1],) or high.shape != low.shape:
+        raise ValueError(
+            f"Dataset bounds must have shape ({pred.shape[-1]},), got {low.shape}/{high.shape}"
+        )
+    if np.any(~np.isfinite(low)) or np.any(~np.isfinite(high)) or np.any(low > high):
+        raise ValueError("Dataset bounds must be finite and lower <= upper")
+    clipped_pred = np.clip(pred, low, high)
+    clipped_truth = np.clip(truth, low, high)
+    result = evaluate_action_predictions(
+        clipped_pred,
+        clipped_truth,
+        mask,
+        fps=fps,
+        position_unit="rad",
+    )
+    valid = np.asarray(mask, dtype=bool)
+    result["dataset_bound_clipping"] = {
+        "bound_source": "dataset action min/max",
+        "prediction_clipped_element_count": int(
+            np.sum(((pred < low) | (pred > high)) & valid[..., None])
+        ),
+        "ground_truth_clipped_element_count": int(
+            np.sum(((truth < low) | (truth > high)) & valid[..., None])
+        ),
+        "lower": low.tolist(),
+        "upper": high.tolist(),
+    }
+    return result
+
+
 def evaluate_action_predictions(
     predicted: np.ndarray,
     target: np.ndarray,
@@ -402,6 +496,10 @@ def evaluate_action_predictions(
             gripper_threshold,
         )
     result["smoothness"] = smoothness_metrics(predicted, fps)
+    result["trajectory_derivatives"] = {
+        "vla_prediction": trajectory_derivative_metrics(predicted, mask, fps),
+        "ground_truth": trajectory_derivative_metrics(target, mask, fps),
+    }
     result["chunk_consistency"] = chunk_consistency_metrics(predicted, mask)
     return result
 

@@ -30,6 +30,7 @@ from .dataset import (
 )
 from .metrics import (
     build_ground_truth_chunks,
+    evaluate_dataset_clipped_predictions,
     evaluate_action_predictions,
     latency_statistics,
     stage_metrics,
@@ -45,10 +46,13 @@ from .perturbations import (
     build_perturbation_specs,
 )
 from .safety import ActionSafetyChecker, load_north_urdf_limits
+from .robot_projection import CameraCalibration, NorthUrdfKinematics
 from .visualization import (
     save_dataset_plots,
     save_episode_plots,
     save_episode_video,
+    save_horizon0_error_over_time,
+    save_robot_projection_video,
 )
 
 
@@ -216,6 +220,7 @@ class EpisodeRun:
     safety_violations: List[Dict[str, Any]]
     metrics_native: Dict[str, Any]
     metrics_robot: Dict[str, Any]
+    metrics_dataset_clipped: Dict[str, Any]
 
 
 class ShadowReplay:
@@ -260,6 +265,21 @@ class ShadowReplay:
             frame_stride=frame_stride,
             optional_fields=optional_fields,
         )
+        stats_path = self.dataset.root / "meta" / "stats.json"
+        dataset_stats = json.loads(stats_path.read_text(encoding="utf-8"))
+        action_stats = dataset_stats.get("action", {})
+        self.dataset_action_lower = np.asarray(action_stats.get("min"), dtype=np.float32)
+        self.dataset_action_upper = np.asarray(action_stats.get("max"), dtype=np.float32)
+        expected_bounds_shape = (self.dataset.action_dim,)
+        if (
+            self.dataset_action_lower.shape != expected_bounds_shape
+            or self.dataset_action_upper.shape != expected_bounds_shape
+        ):
+            raise ValueError(
+                "Dataset action min/max statistics must match action dimension "
+                f"{expected_bounds_shape}, got "
+                f"{self.dataset_action_lower.shape}/{self.dataset_action_upper.shape}"
+            )
         self.selected_ids = select_episode_ids(
             self.dataset.episode_ids,
             config.get("episode_ids"),
@@ -1039,7 +1059,7 @@ class ShadowReplay:
             if pred_eef is not None and adapted.eef_action is not None:
                 pred_eef[step] = adapted.eef_action
             started = time.perf_counter()
-            previous = episode.states[step].copy()
+            previous = None
             previous_velocity = None
             first_result = None
             for horizon in range(self.model.capabilities.chunk_length):
@@ -1055,9 +1075,14 @@ class ShadowReplay:
                     ),
                 )
                 pred_safe[step, horizon] = result.action_safe
-                velocity = (result.action_safe - previous) / dt
+                velocity = (
+                    None
+                    if previous is None
+                    else (result.action_safe - previous) / dt
+                )
                 previous = result.action_safe
-                previous_velocity = velocity
+                if velocity is not None:
+                    previous_velocity = velocity
                 if horizon == 0:
                     first_result = result
                 for violation in result.violations:
@@ -1130,6 +1155,14 @@ class ShadowReplay:
             gripper_indices=action_cfg.get("robot_gripper_indices"),
             gripper_threshold=float(action_cfg.get("gripper_threshold", 0.5)),
             position_unit="rad",
+        )
+        dataset_clipped_metrics = evaluate_dataset_clipped_predictions(
+            pred_joint,
+            gt_robot_chunks,
+            valid_mask,
+            lower=self.dataset_action_lower,
+            upper=self.dataset_action_upper,
+            fps=self.dataset.fps / self.dataset.frame_stride,
         )
         frame_results: List[Dict[str, Any]] = []
         fields = self.config.get("dataset", {}).get("fields") or {}
@@ -1204,6 +1237,7 @@ class ShadowReplay:
             safety_violations=violations,
             metrics_native=native_metrics,
             metrics_robot=robot_metrics,
+            metrics_dataset_clipped=dataset_clipped_metrics,
         )
 
     def _save_episode(self, run: EpisodeRun) -> None:
@@ -1269,6 +1303,7 @@ class ShadowReplay:
             {
                 "model_space": run.metrics_native,
                 "robot_joint_space": run.metrics_robot,
+                "dataset_clipped_robot_space": run.metrics_dataset_clipped,
             },
         )
         for violation in run.safety_violations:
@@ -1288,6 +1323,17 @@ class ShadowReplay:
                     visualization_cfg.get("max_curve_dimensions", 16)
                 ),
             )
+            save_horizon0_error_over_time(
+                self.output_dir
+                / "visualizations"
+                / f"episode_{run.episode_id:04d}_horizon0_error_over_time.png",
+                timestamps=run.timestamps,
+                gt_action=run.gt_robot_actions,
+                pred_action_raw=run.pred_joint_target_chunks[:, 0],
+                pred_action_safe=run.pred_safe_chunks[:, 0],
+                dataset_lower=self.dataset_action_lower,
+                dataset_upper=self.dataset_action_upper,
+            )
         if self.config.get("save_video", False):
             camera_key = visualization_cfg.get(
                 "camera_key", "observation.images.head_left"
@@ -1302,6 +1348,31 @@ class ShadowReplay:
                     frame_results=run.frame_results,
                     fps=self.dataset.fps / self.dataset.frame_stride,
                 )
+        projection_cfg = visualization_cfg.get("robot_projection") or {}
+        if projection_cfg.get("enabled", False):
+            camera_key = visualization_cfg.get(
+                "camera_key", "observation.images.head_left"
+            )
+            with self.dataset.open_video(run.episode_id, camera_key) as reader:
+                save_robot_projection_video(
+                    self.output_dir
+                    / "visualizations"
+                    / f"episode_{run.episode_id:04d}_head_robot_projection.mp4",
+                    video_reader=reader,
+                    frame_indices=run.observation_frame_indices,
+                    current_joint_states=np.stack(
+                        [frame["joint_state"] for frame in run.frame_results]
+                    ),
+                    predicted_joint_chunks=run.pred_safe_chunks,
+                    valid_mask=run.valid_mask,
+                    fps=self.dataset.fps / self.dataset.frame_stride,
+                    kinematics=NorthUrdfKinematics(
+                        Path(projection_cfg["urdf_path"])
+                    ),
+                    calibration=CameraCalibration.from_config(projection_cfg),
+                    max_frames=projection_cfg.get("max_frames"),
+                    output_stride=int(projection_cfg.get("output_stride", 1)),
+                )
 
     def _aggregate_metrics(self, runs: Sequence[EpisodeRun]) -> Dict[str, Any]:
         if not runs:
@@ -1309,6 +1380,9 @@ class ShadowReplay:
         pred_native = np.concatenate([run.pred_denormalized_chunks for run in runs])
         gt_native = np.concatenate([run.gt_native_chunks for run in runs])
         pred_robot = np.concatenate([run.pred_safe_chunks for run in runs])
+        pred_joint_raw = np.concatenate(
+            [run.pred_joint_target_chunks for run in runs]
+        )
         gt_robot = np.concatenate([run.gt_robot_chunks for run in runs])
         mask = np.concatenate([run.valid_mask for run in runs])
         action_cfg = self.config.get("action", {})
@@ -1333,6 +1407,14 @@ class ShadowReplay:
             gripper_indices=action_cfg.get("robot_gripper_indices"),
             gripper_threshold=float(action_cfg.get("gripper_threshold", 0.5)),
             position_unit="rad",
+        )
+        dataset_clipped = evaluate_dataset_clipped_predictions(
+            pred_joint_raw,
+            gt_robot,
+            mask,
+            lower=self.dataset_action_lower,
+            upper=self.dataset_action_upper,
+            fps=self.dataset.fps / self.dataset.frame_stride,
         )
         stages = sum((run.stage_labels for run in runs), [])
         safety = np.concatenate([run.safety_valid for run in runs])
@@ -1370,14 +1452,31 @@ class ShadowReplay:
             gripper_threshold=float(action_cfg.get("gripper_threshold", 0.5)),
             position_unit=action_cfg.get("unit_resolved", "rad"),
         )
+        first_action_clipped = {
+            (run.episode_id, int(record["step_id"]))
+            for run in runs
+            for record in run.safety_violations
+            if int(record.get("horizon", -1)) == 0
+            and bool(record.get("action_clipped"))
+        }
+        first_action_rejected = {
+            (run.episode_id, int(record["step_id"]))
+            for run in runs
+            for record in run.safety_violations
+            if int(record.get("horizon", -1)) == 0
+            and bool(record.get("action_rejected"))
+        }
         return {
             "model_space": native,
             "robot_joint_space": robot,
+            "dataset_clipped_robot_space": dataset_clipped,
             "stage_metrics": per_stage,
             "critical_event_metrics": per_event,
             "safety": {
                 "first_action_violation_count": int(np.sum(~safety)),
                 "first_action_valid_ratio": float(np.mean(safety)),
+                "first_action_clipped_count": len(first_action_clipped),
+                "first_action_rejected_count": len(first_action_rejected),
                 "all_chunk_violation_count": int(
                     sum(len(run.safety_violations) for run in runs)
                 ),
@@ -1556,6 +1655,9 @@ class ShadowReplay:
                     {
                         "model_space": metrics.get("model_space"),
                         "robot_joint_space": metrics.get("robot_joint_space"),
+                        "dataset_clipped_robot_space": metrics.get(
+                            "dataset_clipped_robot_space"
+                        ),
                     },
                     indent=2,
                     ensure_ascii=False,
@@ -1567,8 +1669,10 @@ class ShadowReplay:
                 "in the checkpoint-native representation. With `identity65`, this is the raw "
                 "65-D robot joint target before safety filtering.",
                 "- `robot_joint_space` compares safety-filtered actions with recorded actions. "
-                "Under `violation_behavior: reject`, a rejected target is replaced by the "
-                "measured robot state.",
+                "Its exact mutation follows the configured safety behavior.",
+                "- `dataset_clipped_robot_space` independently clips both raw VLA joint "
+                "targets and GT to the dataset action min/max before computing error. "
+                "Its GT and VLA trajectory derivatives are computed separately.",
                 "",
                 "## Stage and critical-event metrics",
                 "",
@@ -1736,6 +1840,7 @@ class ShadowReplay:
             }
             _flatten("model", run.metrics_native, row)
             _flatten("robot", run.metrics_robot, row)
+            _flatten("dataset_clipped", run.metrics_dataset_clipped, row)
             metric_rows.append(row)
         _write_csv(self.output_dir / "metrics.csv", metric_rows)
         stage_rows = []
