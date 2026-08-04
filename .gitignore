@@ -1,4 +1,11 @@
 dataset
+!UniDex/src/dataset/
+UniDex/src/dataset/*
+!UniDex/src/dataset/LeRobotV3.py
+!UniDex/config/dataset/
+UniDex/config/dataset/*
+!UniDex/config/dataset/lerobot3_origami.yaml
 checkpoints
 asserts
 outputs
+.aris
