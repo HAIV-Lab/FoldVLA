@@ -25,7 +25,7 @@ docker build \
 
 docker run --rm --network host \
   origami-policy-validator:dev \
-  --endpoint tcp/127.0.0.1:17447 \
+  --endpoint tcp/127.0.0.1:7447 \
   --session-id local-contract-test \
   --expected-horizon 25
 ```

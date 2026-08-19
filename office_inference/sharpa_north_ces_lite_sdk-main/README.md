@@ -45,7 +45,7 @@ After starting the local Zenoh router and image, run:
 
 ```bash
 uv run --no-sync python examples/check_zenoh_policy.py \
-  --endpoint tcp/127.0.0.1:17447 \
+  --endpoint tcp/127.0.0.1:7447 \
   --session-id local-contract-test \
   --requests 3 \
   --expected-horizon 25

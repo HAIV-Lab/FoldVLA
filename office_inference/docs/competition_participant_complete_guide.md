@@ -928,7 +928,7 @@ docker network create origami-contract-test
 
 docker run -d --name origami-contract-router \
   --network origami-contract-test \
-  -p 127.0.0.1:17447:7447 \
+  -p 127.0.0.1:7447:7447 \
   "$ROUTER_IMAGE" \
   -l tcp/0.0.0.0:7447 \
   --no-multicast-scouting \
@@ -967,7 +967,7 @@ Run the public validator in another terminal:
 ```bash
 cd sharpa_north_ces_lite_sdk-main
 uv run --no-sync python examples/check_zenoh_policy.py \
-  --endpoint tcp/127.0.0.1:17447 \
+  --endpoint tcp/127.0.0.1:7447 \
   --session-id "$SESSION" \
   --timeout 180 \
   --requests 3 \

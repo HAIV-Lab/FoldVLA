@@ -182,7 +182,7 @@ router and final image. Then run:
 ```bash
 cd sharpa_north_ces_lite_sdk-main
 uv run --no-sync python examples/check_zenoh_policy.py \
-  --endpoint tcp/127.0.0.1:17447 \
+  --endpoint tcp/127.0.0.1:7447 \
   --session-id local-contract-test \
   --timeout 180 \
   --requests 3 \
@@ -293,7 +293,7 @@ public token is also never injected into the team's image.
 
 ```bash
 IMAGE='team-name/origami-policy:submission'
-ARCHIVE='team-name-origami-policy.tar'
+ARCHIVE='team-name-origami-policy-submission.tar'
 
 docker save -o "$ARCHIVE" "$IMAGE"
 zstd -T0 -19 "$ARCHIVE"
