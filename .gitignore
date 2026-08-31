@@ -9,5 +9,6 @@ checkpoints
 asserts
 outputs
 .aris
-*.zst
-*.sha256
+submissions
+train_dockers
+.cache
