@@ -1,31 +1,43 @@
 # T-Rex Training and Inference
 
-这是从 T-Rex 项目抽取的训练、模型推理、硬件评测和辅助工具代码快照，当前作为普通目录上传到 `HAIV-Lab/FoldVLA` 的 `feature/trex-training-inference` 分支。
+This directory is a snapshot of the training, model inference, hardware evaluation,
+and auxiliary tools extracted from the T-Rex project. It is currently uploaded as a
+regular directory to the `feature/trex-training-inference` branch of
+`HAIV-Lab/FoldVLA`.
 
-本目录只保存代码、配置和依赖声明，**不包含 checkpoint、基础模型、数据集、缓存或第三方 LeRobot 源码**。
+This directory contains only code, configuration files, and dependency declarations.
+It **does not include checkpoints, base models, datasets, caches, or third-party
+LeRobot source code**.
 
-## 目录内容
+## Directory Contents
 
-- `scripts/`：训练入口、Origami 训练封装、ZMQ 推理服务、LoRA 推理入口和数据检查脚本。
-- `qwen_vla/`：Qwen3-VL MoT/VLA 模型、扩散动作头、数据集适配、checkpoint 恢复和 M3 masking。
-- `hardware_code/`：相机、遥操作、机器人/灵巧手硬件评测和异步执行代码。
-- `shadow_replay/`：离线 shadow replay、动作投影、安全和评测组件。
-- `tactile_vqvae/`：触觉 VQ-VAE 训练、评测和编码工具。
-- `utils/`：数据转换、统计量处理、VQ-VAE 合并和分析工具。
-- `config/`、`configs/`：训练与 shadow replay 配置。
-- `docker/`：训练/Office 推理镜像定义和 Office policy server。
+- `scripts/`: Training entry points, Origami training wrappers, the ZMQ inference
+  server, LoRA inference launchers, and data-checking scripts.
+- `qwen_vla/`: Qwen3-VL MoT/VLA models, diffusion action heads, dataset adapters,
+  checkpoint restoration, and M3 masking.
+- `hardware_code/`: Camera, teleoperation, robot/dexterous-hand hardware evaluation,
+  and asynchronous execution code.
+- `shadow_replay/`: Offline shadow replay, action projection, safety, and evaluation
+  components.
+- `tactile_vqvae/`: Tactile VQ-VAE training, evaluation, and encoding tools.
+- `utils/`: Data conversion, statistics processing, VQ-VAE merging, and analysis
+  utilities.
+- `config/` and `configs/`: Training and shadow-replay configurations.
+- `docker/`: Training/Office inference image definitions and the Office policy server.
 
-## 训练
+## Training
 
-推荐使用相对可移植的 Docker 训练入口。运行前需要准备：
+The relatively portable Docker training entry point is recommended. Before running it,
+prepare the following:
 
-1. 名为 `trex` 的 Python 3.10/CUDA 环境；
-2. 本地 Qwen3-VL-2B-Instruct 基础模型；
-3. T-Rex mid-training checkpoint 或其他兼容的恢复 checkpoint；
-4. Origami LeRobot 数据集；
-5. 已安装的 LeRobot，或在完整 T-Rex checkout 中提供 `third_party/lerobot/src`。
+1. A Python 3.10/CUDA environment named `trex`;
+2. A local Qwen3-VL-2B-Instruct base model;
+3. A T-Rex mid-training checkpoint or another compatible resume checkpoint;
+4. An Origami LeRobot dataset;
+5. An installed LeRobot package, or `third_party/lerobot/src` from a full T-Rex
+   checkout.
 
-示例：
+Example:
 
 ```bash
 cd T_Rex_Training_and_Inference
@@ -37,13 +49,17 @@ bash scripts/train_origami_docker_vlm_action_lora.sh \
   --gpus 0,1
 ```
 
-训练脚本会检查数据集、模型权重和 checkpoint；可先加 `--dry-run` 查看最终 Accelerate 命令。
+The training script checks the dataset, model weights, and checkpoint. Add `--dry-run`
+first to inspect the final Accelerate command.
 
-`train_origami_2x4090_*.sh`、`test.sh` 和 `lora_test.sh` 是历史环境封装，仍包含原机器的绝对路径。迁移到其他机器时应改路径，或直接调用对应的 Python 文件并显式传入参数。
+`train_origami_2x4090_*.sh`, `test.sh`, and `lora_test.sh` are legacy environment
+wrappers that still contain absolute paths from the original machine. Update those
+paths when moving to another machine, or call the corresponding Python files directly
+with explicit arguments.
 
-## 模型推理
+## Model Inference
 
-### ZMQ 推理服务
+### ZMQ Inference Server
 
 ```bash
 cd T_Rex_Training_and_Inference
@@ -56,7 +72,7 @@ python scripts/test.py \
   --image_size 384 288
 ```
 
-LoRA checkpoint 可使用严格加载入口：
+Use the strict loading entry point for a LoRA checkpoint:
 
 ```bash
 python scripts/lora_test.py \
@@ -66,26 +82,40 @@ python scripts/lora_test.py \
   --cuda 0 --port 5555
 ```
 
-推理服务使用 T-Rex 的 slow/fast cascaded ZMQ 协议；客户端需要按照该协议发送图像、机器人状态和触觉数据。
+The inference server uses T-Rex's slow/fast cascaded ZMQ protocol. Clients must send
+images, robot state, and tactile data according to this protocol.
 
-### Office/Zenoh 推理
+### Office/Zenoh Inference
 
-`docker/office_policy_server.py` 是 Office inference 的 Zenoh policy server，负责验证 Origami observation、适配多相机/触觉输入并调用 T-Rex 模型。`docker/Dockerfile.office` 需要完整的 BuildKit 外部 context（T-Rex 源码、基础模型、checkpoint 和统计量），不能仅凭本目录单独构建。
+`docker/office_policy_server.py` is the Zenoh policy server for Office inference. It
+validates Origami observations, adapts multi-camera/tactile inputs, and calls the T-Rex
+model. `docker/Dockerfile.office` requires a complete external BuildKit context
+(including the T-Rex source, base model, checkpoint, and statistics) and cannot be
+built from this directory alone.
 
-### 真实机器人评测
+### Real-Robot Evaluation
 
-`hardware_code/eval/eval_trex_async.py` 依赖机器人、灵巧手、相机、IK 和站点 SDK，只能在配好硬件和驱动的环境运行。默认配置位于 `hardware_code/config/default.yaml`。
+`hardware_code/eval/eval_trex_async.py` depends on the robot, dexterous hands, cameras,
+IK, and the site SDK. It can run only in an environment with the required hardware
+and drivers configured. The default configuration is located at
+`hardware_code/config/default.yaml`.
 
-## 触觉与离线工具
+## Tactile and Offline Tools
 
-- `tactile_vqvae/` 提供触觉 VQ-VAE 的训练、评测和 code 提取。
-- `utils/` 提供 InLab/LeRobot 转换、统计量和 VQ-VAE code 处理。
-- `shadow_replay/` 提供离线 replay 和安全相关组件；具体运行方式取决于外部数据与评测器。
+- `tactile_vqvae/` provides tactile VQ-VAE training, evaluation, and code extraction.
+- `utils/` provides InLab/LeRobot conversion, statistics processing, and VQ-VAE code
+  utilities.
+- `shadow_replay/` provides offline replay and safety-related components. The exact
+  usage depends on the external data and evaluator.
 
-## 重要限制
+## Important Limitations
 
-- 本目录没有上传任何 checkpoint，包括 `checkpoint-0-11407`。
-- 本目录没有上传 Qwen3-VL 权重、Origami 数据集、`third_party/lerobot`、硬件 SDK 或运行缓存。
-- `docker/Dockerfile` 引用了原 T-Rex checkout 中的 `docker/requirements-cu124.txt`；当前目录保留 Dockerfile 作为构建参考，若要独立构建，需要补齐该依赖文件及第三方源码。
-- 使用前请检查 T-Rex 原项目和 FoldVLA 项目的许可证及第三方依赖许可证。
-
+- No checkpoints, including `checkpoint-0-11407`, have been uploaded to this
+  directory.
+- Qwen3-VL weights, the Origami dataset, `third_party/lerobot`, hardware SDKs, and
+  runtime caches are not included.
+- `docker/Dockerfile` references `docker/requirements-cu124.txt` from the original
+  T-Rex checkout. The Dockerfile is retained here as a build reference; independent
+  builds require that dependency file and the third-party source code to be restored.
+- Check the licenses of the original T-Rex and FoldVLA projects, as well as the
+  licenses of their third-party dependencies, before use.
