@@ -1,0 +1,3 @@
+[submodule "T-Rex"]
+	path = T-Rex
+	url = https://github.com/WHY-student/T-Rex.git
