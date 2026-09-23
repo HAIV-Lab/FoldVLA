@@ -12,3 +12,4 @@ outputs
 submissions
 train_dockers
 .cache
+office_inference

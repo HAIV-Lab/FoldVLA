@@ -7,9 +7,9 @@ TREX_DOCKER_DIR="${FOLDVLA_ROOT}/T-Rex/docker"
 
 IMAGE_NAME="${1:-fold-the-world/origami-policy:submission}"
 TREX_ROOT="${TREX_ROOT:-${FOLDVLA_ROOT}/T-Rex}"
-TREX_CHECKPOINT="${TREX_CHECKPOINT:-${FOLDVLA_ROOT}/checkpoints/T-Rex-origami-posttrain/checkpoint-0-50000}"
+TREX_CHECKPOINT="${TREX_CHECKPOINT:-${FOLDVLA_ROOT}/checkpoints/checkpoint-0-7000}"
 TREX_BASE_MODEL="${TREX_BASE_MODEL:-${FOLDVLA_ROOT}/checkpoints/Qwen3-VL-2B-Instruct}"
-TREX_STATS_FILE="${TREX_STATS_FILE:-${FOLDVLA_ROOT}/dataset/Robotic_Origami_Challenge/lerobot3.0/meta/stats.json}"
+TREX_STATS_FILE="${TREX_STATS_FILE:-${TREX_CHECKPOINT}/stats_data.json}"
 
 for required_path in "${TREX_ROOT}" "${TREX_CHECKPOINT}" "${TREX_BASE_MODEL}" "${TREX_STATS_FILE}"; do
     if [[ ! -e "${required_path}" ]]; then
@@ -22,6 +22,10 @@ if [[ ! -f "${TREX_CHECKPOINT}/model.pt" || ! -f "${TREX_CHECKPOINT}/training_ar
     printf 'Checkpoint is not a T-Rex checkpoint directory: %s\n' "${TREX_CHECKPOINT}" >&2
     exit 1
 fi
+if [[ ! -f "${TREX_STATS_FILE}" ]]; then
+    printf 'Statistics file is not a regular file: %s\n' "${TREX_STATS_FILE}" >&2
+    exit 1
+fi
 if [[ ! -f "${TREX_BASE_MODEL}/config.json" || ! -f "${TREX_BASE_MODEL}/model.safetensors" ]]; then
     printf 'Base model is not a complete Qwen3-VL directory: %s\n' "${TREX_BASE_MODEL}" >&2
     exit 1
@@ -29,11 +33,18 @@ fi
 
 export DOCKER_BUILDKIT="${DOCKER_BUILDKIT:-1}"
 
+STATS_CONTEXT_DIR="$(mktemp -d)"
+cleanup_stats_context() {
+    rm -rf -- "${STATS_CONTEXT_DIR}"
+}
+trap cleanup_stats_context EXIT
+cp -- "${TREX_STATS_FILE}" "${STATS_CONTEXT_DIR}/stats.json"
+
 docker build \
     --file "${TREX_DOCKER_DIR}/Dockerfile.office" \
     --tag "${IMAGE_NAME}" \
     --build-context "trex=${TREX_ROOT}" \
     --build-context "base_model=${TREX_BASE_MODEL}" \
     --build-context "checkpoint=${TREX_CHECKPOINT}" \
-    --build-context "stats=$(dirname "${TREX_STATS_FILE}")" \
+    --build-context "stats=${STATS_CONTEXT_DIR}" \
     "${TREX_DOCKER_DIR}"
